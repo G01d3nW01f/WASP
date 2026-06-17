@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use wasmparser::{Operator, WasmFeatures};
 
 pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names: HashMap<u32, String>) {
-    
-    
+    // verbose if text 
     if let OutputFormat::Text = args.format {
         println!("--- Running Decompiler ---");
         if !args.no_dfa {
@@ -13,15 +12,19 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
     }
 
     
-    
+    let import_count = function_names.len().saturating_sub(function_bodies.len()) as u32;
+
+    // structure data 
     let mut decompiled_functions = Vec::new();
 
     for (idx, body_bytes) in function_bodies.iter().enumerate() {
-        let u32_idx = idx as u32;
+        // real function index
+        let real_func_idx = import_count + (idx as u32);
+        
         let func_name = function_names
-            .get(&u32_idx)
+            .get(&real_func_idx)
             .cloned()
-            .unwrap_or_else(|| format!("function_{}", idx));
+            .unwrap_or_else(|| format!("function_{}", real_func_idx));
 
         let binary_reader = wasmparser::BinaryReader::new(body_bytes, 0, WasmFeatures::default());
         let body = wasmparser::FunctionBody::new(binary_reader);
@@ -41,6 +44,18 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
                     }
                     Operator::GlobalGet { global_index } => {
                         stack.push(format!("global{}", global_index));
+                    }
+                    Operator::Call { function_index } => {
+                        let target_name = function_names
+                            .get(&function_index)
+                            .cloned()
+                            .unwrap_or_else(|| format!("func_{}", function_index));
+
+                        if let Some(arg) = stack.pop() {
+                            expressions.push(format!("{}({});", target_name, arg));
+                        } else {
+                            expressions.push(format!("{}();", target_name));
+                        }
                     }
                     Operator::I32Add => {
                         if let (Some(b), Some(a)) = (stack.pop(), stack.pop()) {
@@ -84,7 +99,7 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
         decompiled_functions.push((func_name, expressions));
     }
 
-   
+    // format 
     match args.format {
         OutputFormat::Text => {
             println!("=== Decompiled Pseudo-Code (Text) ===");
@@ -102,7 +117,6 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
         }
         
         OutputFormat::Json => {
-           
             println!("{{");
             println!("  \"target_file\": \"{}\",", args.wat_path.replace('\\', "\\\\").replace('"', "\\\""));
             println!("  \"functions\": [");
@@ -123,7 +137,6 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
         }
         
         OutputFormat::Html => {
-           
             println!("<!DOCTYPE html>");
             println!("<html lang=\"en\">");
             println!("<head>");
@@ -152,7 +165,6 @@ pub fn run_decompile(args: &Args, function_bodies: Vec<Vec<u8>>, function_names:
                     println!("        <div class=\"code-line comment\">// (No expressions or void function)</div>");
                 } else {
                     for expr in expressions {
-                       
                         let highlighted = expr
                             .replace("return ", "<span class=\"keyword\">return </span>")
                             .replace("let ", "<span class=\"keyword\">let </span>");
